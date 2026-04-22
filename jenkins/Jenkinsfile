@@ -3,17 +3,11 @@ pipeline {
 
     environment {
         DOCKER_IMAGE = "mangeshbonde/nginx-co"
-        TAG = "v2"
+        TAG = "latest"
+        K8S_NAMESPACE = "nginx"
     }
 
     stages {
-
-         stage('Clone Repository') {
-            steps {
-                git branch: 'main', url: 'https://github.com/mangeshbonde/ss-cicd-devops-pipeline.git'
-            }
-         }
-        
 
         stage('Build Docker Image') {
             steps {
@@ -32,6 +26,25 @@ pipeline {
         stage('Push Image') {
             steps {
                 sh 'docker push $DOCKER_IMAGE:$TAG'
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                sh '''
+                kubectl apply -f k8s/namespace/yml
+                kubectl apply -f k8s/deployment.yml
+                kubectl apply -f k8s/service.yml
+                kubectl apply -f k8s/ingress.yml
+                '''
+            }
+        }
+
+        stage('Update Deployment Image') {
+            steps {
+                sh '''
+                kubectl set image deployment/nginx-app nginx-container=$DOCKER_IMAGE:$TAG -n $K8S_NAMESPACE
+                '''
             }
         }
     }
