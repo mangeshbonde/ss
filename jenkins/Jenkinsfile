@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = "mangeshbonde/nginx-co"
         TAG = "latest"
-        K8S_NAMESPACE = "nginx"
+        K8S_NAMESPACE = "nginxcc"
     }
 
     stages {
