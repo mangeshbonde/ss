@@ -46,210 +46,219 @@ ss-cicd-devops-pipeline/
 
 ---
 
-# ⚙️ Step 1: Docker Setup
+# ⚙️ Prerequisites Setup (EC2 + Docker + Kind + Jenkins)
 
-## 🐳 Dockerfile
-
-```dockerfile
-FROM nginx:alpine
-
-RUN rm -rf /usr/share/nginx/html/*
-
-COPY app/index.html /usr/share/nginx/html/index.html
-
-EXPOSE 80
-
-CMD ["nginx", "-g", "daemon off;"]
-```
+This document covers all the required setup steps to prepare the environment for running the **StaticSite CI/CD Pipeline project**.
 
 ---
 
-## 🔨 Build Image
+# ☁️ 1. Update System
 
 ```bash
-docker build -t <dockerhub-username>/nginx-co:v1 .
+sudo apt update
 ```
 
 ---
 
-## ▶️ Run Container
+# 🐳 2. Install Docker
 
 ```bash
-docker run -d -p 8080:80 <dockerhub-username>/nginx-co:v1
+sudo apt install -y docker.io
 ```
 
 ---
 
-## 🌐 Test
-
-```
-http://localhost:8080
-```
-
----
-
-# 📤 Step 2: Push Image to Docker Hub
-
-## 🔐 Login
+## ▶️ Start & Enable Docker
 
 ```bash
-docker login
+sudo systemctl start docker
+sudo systemctl enable docker
 ```
 
 ---
 
-## 📦 Push Image
+## 👤 Run Docker Without sudo
 
 ```bash
-docker push <dockerhub-username>/nginx-co:v1
+sudo usermod -aG docker $USER
+newgrp docker
 ```
 
 ---
 
-# ⚙️ Step 3: Jenkins CI Pipeline
-
-## 🔧 Install Plugins
-
-* Pipeline
-* Git
-* Docker Pipeline
-
----
-
-## 🔐 Add Credentials
-
-Jenkins → Manage Jenkins → Credentials
-
-* Type: Username & Password
-* ID: `dockerhub-creds`
-
----
-
-## 📄 Jenkinsfile
-
-```groovy
-pipeline {
-    agent any
-
-    environment {
-        DOCKER_IMAGE = "<dockerhub-username>/nginx-co"
-        TAG = "v2"
-    }
-
-    stages {
-
-        stage('Build Docker Image') {
-            steps {
-                sh 'docker build -t $DOCKER_IMAGE:$TAG .'
-            }
-        }
-
-        stage('Login to Docker Hub') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                    sh 'echo $PASS | docker login -u $USER --password-stdin'
-                }
-            }
-        }
-
-        stage('Push Image') {
-            steps {
-                sh 'docker push $DOCKER_IMAGE:$TAG'
-            }
-        }
-    }
-}
-```
-
----
-
-## ⚠️ Fixes Applied
-
-* Removed duplicate Git clone stage
-* Fixed branch issue (`main` instead of `master`)
-* Fixed Docker permissions:
+# 📦 3. Clone Setup Repository
 
 ```bash
-sudo usermod -aG docker jenkins
-sudo systemctl restart jenkins
+git clone https://github.com/mangeshbonde/k8s.git
+cd k8s
 ```
 
 ---
 
-# ☸️ Step 4: Kubernetes Deployment (EC2 + Kind)
-
-## 🧱 Create Cluster
+# ⚙️ 4. Run Installation Script
 
 ```bash
-kind create cluster --name devops-cluster
+chmod 777 install.sh
+./install.sh
 ```
+
+👉 This script installs:
+
+* Docker (if not installed)
+* kubectl
+* Kind (Kubernetes in Docker)
 
 ---
 
-## 📄 deployment.yaml
+# ⚠️ 5. Fix Docker Permission Issue (IMPORTANT)
 
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx-app
-  namespace: nginx
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: nginx-app
-  template:
-    metadata:
-      labels:
-        app: nginx-app
-    spec:
-      containers:
-      - name: nginx-container
-        image: <dockerhub-username>/nginx-co:v2
-        ports:
-        - containerPort: 80
-```
-
----
-
-## 📄 service.yaml (ClusterIP)
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: nginx-service
-  namespace: nginx
-spec:
-  type: ClusterIP
-  selector:
-    app: nginx-app
-  ports:
-    - port: 80
-      targetPort: 80
-```
-
----
-
-## 🚀 Apply
+If you see error:
 
 ```bash
-kubectl create namespace nginx
-kubectl apply -f kubernetes/
+permission denied while trying to connect to the docker API
 ```
 
 ---
 
-# 🌐 Step 5: Access Application
+## ✅ Fix Steps
 
-## ⚠️ Important
+### 1️⃣ Add user to Docker group
 
-ClusterIP is internal → cannot access via browser directly.
+```bash
+sudo usermod -aG docker ubuntu
+```
 
 ---
 
-## ✅ Use Port Forward
+### 2️⃣ Apply group changes
+
+```bash
+newgrp docker
+```
+
+OR logout and login again
+
+---
+
+### 3️⃣ Test Docker
+
+```bash
+docker ps
+```
+
+👉 This must work without sudo
+
+---
+
+# ☸️ 6. Create Kubernetes Cluster (Kind)
+
+```bash
+mkdir kind-cluster
+cd kind-cluster
+```
+
+---
+
+## Create Cluster
+
+```bash
+kind create cluster --name=tws-cluster --config=kind-config.yaml
+```
+
+---
+
+## Verify Cluster
+
+```bash
+kubectl cluster-info --context kind-tws-cluster
+kubectl get nodes
+```
+
+👉 Nodes should be in **Ready** state
+
+---
+
+# 🌐 7. Install NGINX Ingress Controller
+
+```bash
+kubectl apply -f https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml
+```
+
+---
+
+## Verify Namespace
+
+```bash
+kubectl get ns
+```
+
+👉 You should see:
+
+```bash
+ingress-nginx
+```
+
+---
+
+# 🤖 8. Install Jenkins
+
+Follow official documentation:
+
+👉 https://www.jenkins.io/doc/book/installing/linux/#debianubuntu
+
+---
+
+## Start Jenkins
+
+```bash
+sudo systemctl start jenkins
+sudo systemctl enable jenkins
+```
+
+---
+
+# 🔐 9. Give Jenkins Sudo Access
+
+```bash
+sudo vim /etc/sudoers
+```
+
+Add:
+
+```bash
+jenkins ALL=(ALL:ALL) NOPASSWD:ALL
+```
+
+---
+
+# ☸️ 10. Allow Jenkins to Access Kubernetes
+
+---
+
+## Copy kubeconfig
+
+```bash
+sudo mkdir -p /var/lib/jenkins/.kube
+sudo cp ~/.kube/config /var/lib/jenkins/.kube/config
+sudo chown -R jenkins:jenkins /var/lib/jenkins/.kube
+```
+
+---
+
+## Test as Jenkins user
+
+```bash
+sudo su - jenkins
+kubectl get nodes
+```
+
+👉 If this works → Jenkins can deploy to Kubernetes
+
+---
+
+# 🌍 11. Access Application (Temporary) Eun After CICD Success.
+
+## Using Port Forward
 
 ```bash
 kubectl port-forward -n nginx service/nginx-service 8081:80 --address 0.0.0.0
@@ -257,9 +266,9 @@ kubectl port-forward -n nginx service/nginx-service 8081:80 --address 0.0.0.0
 
 ---
 
-## 🌍 Access
+## Open in Browser
 
-```
+```bash
 http://<EC2-PUBLIC-IP>:8081
 ```
 
@@ -269,96 +278,29 @@ http://<EC2-PUBLIC-IP>:8081
 
 Allow:
 
-```
+```bash
 Port: 8081
 Source: 0.0.0.0/0
 ```
 
 ---
 
-# 🌍 Step 6: Ingress Setup (Production Style)
+# 🧠 Notes
 
-## Install Ingress Controller
-
-```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-```
-
----
-
-## 📄 ingress.yaml
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: nginx-ingress
-  namespace: nginx
-spec:
-  rules:
-  - http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: nginx-service
-            port:
-              number: 80
-```
+* Kind cluster runs inside Docker
+* Cluster does not persist after EC2 restart
+* Ingress requires additional configuration for external access
+* Port-forward is used for quick testing
 
 ---
 
-## Apply
+# ✅ Prerequisites Completed
 
-```bash
-kubectl apply -f k8s/ingress.yaml
-```
+You are now ready to:
 
----
-
-## 🌐 Access
-
-```
-http://<EC2-PUBLIC-IP>
-```
-
----
-
-## 🔓 Open Port
-
-```
-Port: 80
-```
-
----
-
-# 🎉 Final Architecture
-
-```
-User → EC2 → Ingress → Service (ClusterIP) → Pods
-```
-
----
-
-# 🧠 Key Learnings
-
-* Docker build context handling
-* Jenkins credential management
-* CI/CD pipeline creation
-* Kubernetes service types
-* Ingress-based routing
-* AWS networking basics
-
----
-
-# 🚀 Future Enhancements
-
-* Jenkins → Kubernetes auto deployment
-* Helm charts
-* HTTPS with TLS
-* Monitoring (Prometheus + Grafana)
-* Terraform for infra
+* Build Docker images
+* Run Jenkins CI/CD pipeline
+* Deploy applications to Kubernetes
 
 ---
 
