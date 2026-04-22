@@ -1,4 +1,6 @@
-# 🚀 StaticSite CI/CD Pipeline (Docker → Jenkins → Kubernetes)
+# 🚀 StaticSite CI/CD Pipeline (Docker → Jenkins → Kubernetes on EC2)
+
+---
 
 ## 📌 Project Overview
 
@@ -6,24 +8,29 @@ This project demonstrates a complete **CI/CD pipeline** for deploying a static w
 
 * Docker (Containerization)
 * Jenkins (CI Automation)
-* Kubernetes (Deployment)
+* Kubernetes (Kind Cluster)
 * AWS EC2 (Infrastructure)
 
-The pipeline automates building, packaging, and deploying a static HTML application.
+The pipeline automates the entire lifecycle:
 
----
-
-## 🎯 Objective
-
-To build an automated pipeline where:
-
-```
-Code → Docker Image → Docker Hub → Kubernetes Deployment
+```text
+Code → Build → Docker Image → Push → Deploy → Access
 ```
 
 ---
 
-## 🏗️ Project Structure
+# 🎯 Objective
+
+To build a **fully automated CI/CD pipeline** where:
+
+* Code changes trigger Jenkins
+* Docker image is built & pushed
+* Kubernetes deployment is updated automatically
+* Application is accessible via browser
+
+---
+
+# 🏗️ Project Structure
 
 ```
 ss-cicd-devops-pipeline/
@@ -46,13 +53,9 @@ ss-cicd-devops-pipeline/
 
 ---
 
-# ⚙️ Prerequisites Setup (EC2 + Docker + Kind + Jenkins)
+# ⚙️ Step 1: Prerequisites Setup (EC2)
 
-This document covers all the required setup steps to prepare the environment for running the **StaticSite CI/CD Pipeline project**.
-
----
-
-# ☁️ 1. Update System
+## Update System
 
 ```bash
 sudo apt update
@@ -60,24 +63,17 @@ sudo apt update
 
 ---
 
-# 🐳 2. Install Docker
+## Install Docker
 
 ```bash
 sudo apt install -y docker.io
-```
-
----
-
-## ▶️ Start & Enable Docker
-
-```bash
 sudo systemctl start docker
 sudo systemctl enable docker
 ```
 
 ---
 
-## 👤 Run Docker Without sudo
+## Run Docker Without sudo
 
 ```bash
 sudo usermod -aG docker $USER
@@ -86,80 +82,28 @@ newgrp docker
 
 ---
 
-# 📦 3. Clone Setup Repository
+## Install Kubernetes Tools (Kind + kubectl)
 
 ```bash
 git clone https://github.com/mangeshbonde/k8s.git
 cd k8s
-```
-
----
-
-# ⚙️ 4. Run Installation Script
-
-```bash
 chmod 777 install.sh
 ./install.sh
 ```
 
-👉 This script installs:
-
-* Docker (if not installed)
-* kubectl
-* Kind (Kubernetes in Docker)
-
 ---
 
-# ⚠️ 5. Fix Docker Permission Issue (IMPORTANT)
-
-If you see error:
-
-```bash
-permission denied while trying to connect to the docker API
-```
-
----
-
-## ✅ Fix Steps
-
-### 1️⃣ Add user to Docker group
+## Fix Docker Permission Issue
 
 ```bash
 sudo usermod -aG docker ubuntu
-```
-
----
-
-### 2️⃣ Apply group changes
-
-```bash
 newgrp docker
-```
-
-OR logout and login again
-
----
-
-### 3️⃣ Test Docker
-
-```bash
 docker ps
 ```
 
-👉 This must work without sudo
-
 ---
 
-# ☸️ 6. Create Kubernetes Cluster (Kind)
-
-```bash
-mkdir kind-cluster
-cd kind-cluster
-```
-
----
-
-## Create Cluster
+# ☸️ Step 2: Create Kubernetes Cluster
 
 ```bash
 kind create cluster --name=tws-cluster --config=kind-config.yaml
@@ -170,15 +114,12 @@ kind create cluster --name=tws-cluster --config=kind-config.yaml
 ## Verify Cluster
 
 ```bash
-kubectl cluster-info --context kind-tws-cluster
 kubectl get nodes
 ```
 
-👉 Nodes should be in **Ready** state
-
 ---
 
-# 🌐 7. Install NGINX Ingress Controller
+# 🌐 Step 3: Install Ingress Controller
 
 ```bash
 kubectl apply -f https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml
@@ -186,25 +127,51 @@ kubectl apply -f https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.
 
 ---
 
-## Verify Namespace
+## Verify
 
 ```bash
-kubectl get ns
-```
-
-👉 You should see:
-
-```bash
-ingress-nginx
+kubectl get pods -n ingress-nginx
 ```
 
 ---
 
-# 🤖 8. Install Jenkins
+# 🐳 Step 4: Docker Setup
 
-Follow official documentation:
+## Dockerfile
 
-👉 https://www.jenkins.io/doc/book/installing/linux/#debianubuntu
+```dockerfile
+FROM nginx:alpine
+RUN rm -rf /usr/share/nginx/html/*
+COPY app/index.html /usr/share/nginx/html/index.html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+---
+
+## Build Image
+
+```bash
+docker build -t <dockerhub-username>/nginx-co:v1 .
+```
+
+---
+
+## Push Image
+
+```bash
+docker login
+docker push <dockerhub-username>/nginx-co:v1
+```
+
+---
+
+# 🤖 Step 5: Jenkins Setup
+
+## Install Jenkins
+
+Follow:
+https://www.jenkins.io/doc/book/installing/linux/#debianubuntu
 
 ---
 
@@ -217,25 +184,27 @@ sudo systemctl enable jenkins
 
 ---
 
-# 🔐 9. Give Jenkins Sudo Access
+## Add Docker Hub Credentials
+
+* Go to Jenkins → Manage Jenkins → Credentials
+* Add:
+
+  * Username
+  * Password
+  * ID: `dockerhub-creds`
+
+---
+
+## Allow Jenkins to Access Docker
 
 ```bash
-sudo vim /etc/sudoers
-```
-
-Add:
-
-```bash
-jenkins ALL=(ALL:ALL) NOPASSWD:ALL
+sudo usermod -aG docker jenkins
+sudo systemctl restart jenkins
 ```
 
 ---
 
-# ☸️ 10. Allow Jenkins to Access Kubernetes
-
----
-
-## Copy kubeconfig
+## Allow Jenkins to Access Kubernetes
 
 ```bash
 sudo mkdir -p /var/lib/jenkins/.kube
@@ -245,62 +214,185 @@ sudo chown -R jenkins:jenkins /var/lib/jenkins/.kube
 
 ---
 
-## Test as Jenkins user
+## Test
 
 ```bash
 sudo su - jenkins
 kubectl get nodes
 ```
 
-👉 If this works → Jenkins can deploy to Kubernetes
+---
+
+# ⚙️ Step 6: Kubernetes Manifests
+
+## deployment.yaml
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-app
+  namespace: nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-app
+  template:
+    metadata:
+      labels:
+        app: nginx-app
+    spec:
+      containers:
+      - name: nginx-container
+        image: <dockerhub-username>/nginx-co:latest
+        ports:
+        - containerPort: 80
+```
 
 ---
 
-# 🌍 11. Access Application (Temporary) Eun After CICD Success.
+## service.yaml (ClusterIP)
 
-## Using Port Forward
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  namespace: nginx
+spec:
+  type: ClusterIP
+  selector:
+    app: nginx-app
+  ports:
+    - port: 80
+      targetPort: 80
+```
+
+---
+
+## ingress.yaml
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nginx-ingress
+  namespace: nginx
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx-service
+            port:
+              number: 80
+```
+
+---
+
+# 🚀 Step 7: Jenkins Pipeline (Full CI/CD)
+
+```groovy
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_IMAGE = "<dockerhub-username>/nginx-co"
+        TAG = "latest"
+        K8S_NAMESPACE = "nginx"
+    }
+
+    stages {
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t $DOCKER_IMAGE:$TAG .'
+            }
+        }
+
+        stage('Login to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                    sh 'echo $PASS | docker login -u $USER --password-stdin'
+                }
+            }
+        }
+
+        stage('Push Image') {
+            steps {
+                sh 'docker push $DOCKER_IMAGE:$TAG'
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                sh '''
+                kubectl apply -f k8s/
+                kubectl set image deployment/nginx-app nginx-container=$DOCKER_IMAGE:$TAG -n $K8S_NAMESPACE
+                '''
+            }
+        }
+    }
+}
+```
+
+---
+
+# 🌐 Step 8: Access Application
+
+## Option 1 (Port Forward)
 
 ```bash
 kubectl port-forward -n nginx service/nginx-service 8081:80 --address 0.0.0.0
 ```
 
----
-
-## Open in Browser
-
-```bash
+```
 http://<EC2-PUBLIC-IP>:8081
 ```
 
 ---
 
-## 🔓 Security Group Rule
-
-Allow:
+## Option 2 (Ingress)
 
 ```bash
-Port: 8081
-Source: 0.0.0.0/0
+kubectl port-forward -n ingress-nginx service/ingress-nginx-controller 80:80 --address 0.0.0.0
+```
+
+```
+http://<EC2-PUBLIC-IP>
 ```
 
 ---
 
-# 🧠 Notes
+## 🔓 Security Group Rules
 
-* Kind cluster runs inside Docker
-* Cluster does not persist after EC2 restart
-* Ingress requires additional configuration for external access
-* Port-forward is used for quick testing
-
----
-
-# ✅ Prerequisites Completed
-
-You are now ready to:
-
-* Build Docker images
-* Run Jenkins CI/CD pipeline
-* Deploy applications to Kubernetes
+| Port | Purpose            |
+| ---- | ------------------ |
+| 8080 | Jenkins            |
+| 8081 | App (port-forward) |
+| 80   | Ingress            |
 
 ---
 
+# 🎉 Final Architecture
+
+```
+Developer → GitHub → Jenkins → Docker Hub → Kubernetes → Ingress → Browser
+```
+
+---
+
+# 🧠 Key Learnings
+
+* Docker build context handling
+* Jenkins credentials management
+* CI/CD pipeline automation
+* Kubernetes deployment lifecycle
+* ClusterIP vs NodePort vs Ingress
+* AWS EC2 networking
+
+---
